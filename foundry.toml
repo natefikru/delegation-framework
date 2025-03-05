@@ -10,7 +10,7 @@ test = "test"
 solc = "0.8.23"
 fs_permissions = [{ access = "read", path = "./out"},{ access = "read", path = "./broadcast"}, { access = "read-write", path = "./deployments"}]
 sparse_mode = true
-evm_version = "london"
+evm_version = "prague"
 
 [fmt]
   bracket_spacing = true

@@ -43,7 +43,7 @@ contract EIP7702StatelessDeleGator is EIP7702DeleGatorCore {
         EIP7702DeleGatorCore(_delegationManager, _entryPoint, NAME, DOMAIN_VERSION)
     { }
 
-    ////////////////////////////// Internal Methods //////////////////////////////
+    ///////////////////////////// / Internal Methods //////////////////////////////
 
     /**
      * @notice This method is used to verify the signature of the signer

@@ -313,6 +313,7 @@ abstract contract EIP7702DeleGatorCore is
     )
         external
         view
+        virtual
         override
         onlyProxy
         returns (bytes4 magicValue_)
