@@ -74,6 +74,145 @@ Developers can build new Caveat Enforcers for their own use cases, and the possi
 
 [Read more on "Caveats" ->](/documents/DelegationManager.md#Caveats)
 
+## Subscription Payments Platform Enforcers
+
+The Delegation Framework includes several enforcers specifically designed for subscription payment systems. These enforcers enable secure, flexible, and automated recurring payment solutions without requiring users to approve each transaction.
+
+### Existing Payment Enforcers
+
+- **RecurringPaymentEnforcer**: Manages recurring payments with dunning functionality, enforcing:
+  - Minimum time intervals between payments
+  - Maximum number of payments allowed
+  - Dunning (retry) logic for failed payments
+  - Subscription nullification after exceeding maximum dunning attempts
+
+- **IntervalTransferEnforcer**: Enables transfers at fixed intervals with limits, enforcing:
+  - Minimum time intervals between transfers
+  - Maximum number of transfers allowed
+  - Fixed transfer amounts
+
+- **ERC20TransferAmountEnforcer**: Limits the total amount of ERC20 tokens that can be transferred.
+
+- **NativeTokenTransferAmountEnforcer**: Limits the total amount of native tokens (ETH) that can be transferred.
+
+- **ERC20StreamingEnforcer**: Enables continuous streaming of ERC20 tokens over time.
+
+- **NativeTokenStreamingEnforcer**: Enables continuous streaming of native tokens (ETH) over time.
+
+### Recommended Additional Enforcers for Subscription Platforms
+
+To build a comprehensive subscription payments platform, the following additional enforcers are recommended:
+
+#### 1. SubscriptionTierEnforcer
+Manages different payment tiers within a subscription service:
+- **Dynamic Payment Amounts**: Automatically adjusts payment amounts based on the user's current subscription tier
+- **Tier-Based Permissions**: Grants different levels of access or functionality based on subscription tier
+- **Upgrade/Downgrade Logic**: Handles the transition between tiers, including prorated payments
+- **Tier-Specific Limits**: Enforces different usage limits or quotas based on tier level
+- **Implementation**: Stores the current tier for each delegation and validates that the payment amount matches the tier's price
+
+#### 2. TrialPeriodEnforcer
+Manages free trial periods before paid subscriptions begin:
+- **Trial Duration**: Configures customizable trial periods (days, weeks, months)
+- **Trial Limitations**: Enforces usage limits during trial periods
+- **Automatic Conversion**: Seamlessly transitions from trial to paid subscription
+- **Trial Eligibility**: Tracks if a user has previously used a trial to prevent abuse
+- **Implementation**: Tracks trial start time and automatically enables payment collection after the trial period ends
+
+#### 3. GracePeriodEnforcer
+Provides flexibility for failed payments:
+- **Configurable Grace Periods**: Sets custom timeframes after failed payments
+- **Service Continuity**: Maintains service access during the grace period
+- **Graduated Responses**: Implements different levels of service restriction based on how long payment has been overdue
+- **Notification Triggers**: Emits events at specific points during the grace period for off-chain notification systems
+- **Implementation**: Tracks failed payment timestamps and allows continued service access for a specified period
+
+#### 4. ProrationEnforcer
+Handles partial billing periods:
+- **Mid-Cycle Changes**: Calculates correct payment amounts for subscription changes made between billing dates
+- **Refund Calculations**: Determines appropriate refund amounts for downgrades or cancellations
+- **Upgrade Charges**: Calculates additional charges for mid-cycle upgrades
+- **Billing Alignment**: Adjusts billing dates to align with calendar periods if desired
+- **Implementation**: Calculates payment amounts based on the fraction of the billing period used
+
+#### 5. DiscountEnforcer
+Applies various types of discounts to subscription payments:
+- **Time-Limited Discounts**: Applies promotional rates for specific periods
+- **Loyalty Discounts**: Increases discounts based on subscription duration
+- **Coupon Codes**: Supports one-time or recurring discount codes
+- **Volume Discounts**: Applies discounts based on usage volume or multiple subscriptions
+- **Implementation**: Modifies payment amounts based on applicable discount rules
+
+#### 6. RefundEnforcer
+Manages subscription refunds:
+- **Refund Policies**: Implements different refund rules based on time since payment
+- **Partial Refunds**: Calculates appropriate partial refunds based on usage
+- **Refund Limits**: Enforces maximum refund amounts or frequencies
+- **Refund Approvals**: Requires specific conditions to be met for refund eligibility
+- **Implementation**: Tracks payment history and calculates refundable amounts based on policy
+
+#### 7. PauseResumeEnforcer
+Allows temporary subscription pauses:
+- **Pause Duration Limits**: Sets maximum allowed pause periods
+- **Billing Adjustments**: Automatically extends subscription end dates by the pause duration
+- **Pause Frequency Limits**: Restricts how often subscriptions can be paused
+- **Partial Pauses**: Allows pausing specific features rather than the entire subscription
+- **Implementation**: Tracks pause status and adjusts payment schedules accordingly
+
+#### 8. AutoRenewalEnforcer
+Manages subscription renewals:
+- **Renewal Notifications**: Emits events before renewal to trigger notifications
+- **Renewal Terms**: Allows different terms for renewals vs. initial subscriptions
+- **Opt-Out Management**: Tracks user preferences for auto-renewal
+- **Renewal Failure Handling**: Implements retry logic for failed renewal payments
+- **Implementation**: Tracks subscription end dates and automatically processes renewals
+
+#### 9. MultiCurrencyEnforcer
+Supports payments in different currencies or tokens:
+- **Currency Conversion**: Handles real-time exchange rates between currencies
+- **Preferred Currency**: Stores user currency preferences
+- **Stable Payment Values**: Maintains consistent value despite currency fluctuations
+- **Currency Fallbacks**: Defines fallback currencies if preferred payment method fails
+- **Implementation**: Validates payments in different currencies based on current exchange rates
+
+#### 10. TaxEnforcer
+Handles tax calculations for subscription payments:
+- **Jurisdiction-Based Taxes**: Applies different tax rates based on user location
+- **Tax Exemptions**: Supports tax exemption certificates or special statuses
+- **Tax Reporting**: Generates events for tax reporting purposes
+- **Tax Inclusive/Exclusive Pricing**: Supports different pricing models
+- **Implementation**: Calculates and adds appropriate taxes to payment amounts
+
+#### 11. UsageBasedEnforcer
+Enables variable payments based on actual usage:
+- **Usage Metering**: Tracks usage metrics from external oracles or contracts
+- **Tiered Pricing**: Applies different rates based on usage tiers
+- **Usage Caps**: Enforces maximum usage limits
+- **Minimum Charges**: Ensures minimum payment amounts regardless of usage
+- **Implementation**: Calculates payment amounts based on reported usage metrics
+
+#### 12. BundleDiscountEnforcer
+Manages discounts for multiple subscriptions:
+- **Bundle Identification**: Tracks which subscriptions are part of a bundle
+- **Cross-Service Discounts**: Applies discounts across different subscription services
+- **Bundle-Specific Terms**: Enforces special terms for bundled subscriptions
+- **Bundle Integrity**: Ensures all parts of a bundle remain active
+- **Implementation**: Coordinates with other subscription enforcers to apply bundle pricing
+
+### Integration Considerations
+
+These enforcers would be most powerful when used in combination. For example:
+
+1. A **SubscriptionTierEnforcer** could work with a **TrialPeriodEnforcer** to offer different trial periods for different tiers.
+
+2. A **ProrationEnforcer** would naturally complement a **RefundEnforcer** to ensure fair billing during subscription changes.
+
+3. The **GracePeriodEnforcer** could integrate with the existing **RecurringPaymentEnforcer** to provide a comprehensive payment retry system.
+
+Each enforcer would follow the same pattern as the existing `RecurringPaymentEnforcer`, implementing the `beforeHook` and `afterHook` functions to validate and record payment activities, while maintaining their own state mappings to track subscription-specific data.
+
+By implementing these additional enforcers, the delegation framework would provide a comprehensive subscription management system capable of handling virtually any subscription business model in a decentralized, secure manner.
+
 ## Development
 
 ### Third Party Developers

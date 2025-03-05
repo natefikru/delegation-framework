@@ -5,7 +5,7 @@ import { Script, console2 } from "forge-std/Script.sol";
 import { EntryPoint } from "@account-abstraction/core/EntryPoint.sol";
 import { DelegationManager } from "../src/DelegationManager.sol";
 import { ERC7715DeleGator } from "../src/ERC7715/ERC7715DeleGator.sol";
-import { HelloWorld } from "../src/examples/HelloWorld.sol";
+import { HelloWorld } from "../src/cyphera_examples/HelloWorld.sol";
 import { Execution, Delegation, Caveat, ModeCode } from "../src/utils/Types.sol";
 import { ExecutionLib } from "@erc7579/lib/ExecutionLib.sol";
 import {
