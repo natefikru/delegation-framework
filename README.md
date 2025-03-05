@@ -165,3 +165,69 @@ Currently in Gated Alpha phase. Sign up to be an early partner [here](https://ga
 - [EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)
 - [EIP-7710](https://eips.ethereum.org/EIPS/eip-7710)
 - [EIP-7821](https://eips.ethereum.org/EIPS/eip-7821)
+
+# Hello World Delegation Example
+
+This project demonstrates how to use the ERC-7715/ERC-7702/ERC-7710 delegation framework to allow one wallet to execute smart contract functions on behalf of another wallet.
+
+## Overview
+
+The example consists of:
+
+1. A simple `HelloWorld` contract that is owned by a delegator wallet
+2. A script that demonstrates various delegation scenarios:
+   - Direct execution by the delegator
+   - Delegated execution through another wallet
+   - Batch execution of multiple functions
+   - Try execution with error handling
+
+## Key Components
+
+- **HelloWorld.sol**: A simple contract with functions to update a message and increment a counter
+- **HelloWorldDelegation.s.sol**: A script that demonstrates the delegation capabilities
+
+## How It Works
+
+1. The delegator wallet (ERC7715DeleGator) is the owner of the HelloWorld contract
+2. The delegator can directly execute functions on the contract
+3. The delegator can create a delegation to allow another wallet to execute functions on its behalf
+4. The delegate can use the delegation to execute functions through the DelegationManager
+
+## Running the Example
+
+```bash
+# Run the HelloWorld delegation script
+forge script script/HelloWorldDelegation.s.sol -vvv
+```
+
+## Delegation Scenarios
+
+### Direct Execution
+
+The delegator directly executes a function on the HelloWorld contract by signing a transaction with its private key.
+
+### Delegated Execution
+
+The delegator creates a delegation that allows another wallet to execute functions on its behalf. The delegate then uses this delegation to execute a function through the DelegationManager.
+
+### Batch Execution
+
+Multiple function calls are batched together and executed in a single transaction.
+
+### Try Execution
+
+A function that will revert is executed using the "try" execution mode, which allows the transaction to succeed even if the inner call fails.
+
+## Key Concepts
+
+- **Delegation**: A signed permission from one wallet to another to execute specific functions
+- **DelegationManager**: The central contract that validates delegations and executes functions
+- **DeleGator**: A smart contract wallet that can create and use delegations
+- **Execution Modes**: Different ways to execute functions (single, batch, try)
+- **Caveats**: Conditions that can be attached to delegations (not used in this simple example)
+
+## Further Reading
+
+- [ERC-7710: Delegation Registry](https://eips.ethereum.org/EIPS/eip-7710)
+- [ERC-7715: Smart Contract Account Delegation](https://eips.ethereum.org/EIPS/eip-7715)
+- [ERC-7702: Stateless Smart Contract Account](https://eips.ethereum.org/EIPS/eip-7702)
