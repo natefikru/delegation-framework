@@ -5,7 +5,7 @@ import { Script, console2 } from "forge-std/Script.sol";
 import { EntryPoint } from "@account-abstraction/core/EntryPoint.sol";
 import { DelegationManager } from "../src/DelegationManager.sol";
 import { EIP7702StatelessDeleGator } from "../src/EIP7702/EIP7702StatelessDeleGator.sol";
-import { HelloWorld } from "../src/examples/HelloWorld.sol";
+import { HelloWorld } from "../src/cyphera_examples/HelloWorld.sol";
 import { Execution, Delegation, Caveat, ModeCode } from "../src/utils/Types.sol";
 import { ExecutionLib } from "@erc7579/lib/ExecutionLib.sol";
 import {
