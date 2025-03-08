@@ -57,7 +57,9 @@ contract TestEIP7702Implementation is Script {
         delegationManager = new DelegationManager(owner);
         vm.label(address(delegationManager), "DelegationManager");
 
-        deleGator = new EIP7702StatelessDeleGator(IDelegationManager(address(delegationManager)), IEntryPoint(address(entryPoint)));
+        deleGator = new EIP7702StatelessDeleGator(
+            IDelegationManager(address(delegationManager)), IEntryPoint(address(entryPoint))
+        );
         vm.label(address(deleGator), "EIP7702StatelessDeleGator");
     }
 
@@ -84,7 +86,8 @@ contract TestEIP7702Implementation is Script {
         Execution memory execution = Execution({ target: recipient, value: 0, callData: hex"" });
 
         // Encode the execution
-        bytes memory executionCalldata = ExecutionLib.encodeSingle(execution.target, execution.value, execution.callData);
+        bytes memory executionCalldata =
+            ExecutionLib.encodeSingle(execution.target, execution.value, execution.callData);
 
         // Create mode (simple single execution)
         ModeCode mode = ModeLib.encodeSimpleSingle();

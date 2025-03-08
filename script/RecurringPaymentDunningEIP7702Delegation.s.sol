@@ -11,7 +11,7 @@ import { ExecutionLib } from "@erc7579/lib/ExecutionLib.sol";
 import { ModeLib } from "@erc7579/lib/ModeLib.sol";
 import { EncoderLib } from "../src/libraries/EncoderLib.sol";
 import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import { RecurringPaymentEnforcer } from "../src/cyphera_enforcers/RecurringPaymentEnforcer.sol";
+import { RecurringPaymentDunningEnforcer } from "../src/cyphera_enforcers/RecurringPaymentDunningEnforcer.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IDelegationManager } from "../src/interfaces/IDelegationManager.sol";
 import { IEntryPoint } from "@account-abstraction/interfaces/IEntryPoint.sol";
@@ -34,7 +34,7 @@ contract RecurringPaymentEIP7702Delegation is Script {
     EIP7702StatelessDeleGator public implementation;
     EIP7702StatelessDeleGator public delegatorWallet;
     EIP7702StatelessDeleGator public delegateWallet;
-    RecurringPaymentEnforcer public recurringPaymentEnforcer;
+    RecurringPaymentDunningEnforcer public recurringPaymentDunningEnforcer;
 
     // Payment parameters
     address public recipient;
@@ -68,12 +68,13 @@ contract RecurringPaymentEIP7702Delegation is Script {
         // Deploy SimpleFactory
         factory = new SimpleFactory();
 
-        // Deploy RecurringPaymentEnforcer
-        recurringPaymentEnforcer = new RecurringPaymentEnforcer();
+        // Deploy RecurringPaymentDunningEnforcer
+        recurringPaymentDunningEnforcer = new RecurringPaymentDunningEnforcer();
 
         // Deploy implementation
-        implementation =
-            new EIP7702StatelessDeleGator(IDelegationManager(address(delegationManager)), IEntryPoint(address(entryPoint)));
+        implementation = new EIP7702StatelessDeleGator(
+            IDelegationManager(address(delegationManager)), IEntryPoint(address(entryPoint))
+        );
 
         // Create wallet proxies using deploy method
         bytes memory initCode = abi.encodePacked(
@@ -158,7 +159,7 @@ contract RecurringPaymentEIP7702Delegation is Script {
 
         // Create the caveat
         Caveat[] memory caveats = new Caveat[](1);
-        caveats[0] = Caveat({ enforcer: address(recurringPaymentEnforcer), terms: terms, args: hex"" });
+        caveats[0] = Caveat({ enforcer: address(recurringPaymentDunningEnforcer), terms: terms, args: hex"" });
 
         // Create the delegation
         Delegation memory delegation = Delegation({
@@ -203,7 +204,8 @@ contract RecurringPaymentEIP7702Delegation is Script {
         Execution memory execution = Execution({ target: recipient, value: PAYMENT_AMOUNT, callData: hex"" });
 
         // Encode the execution
-        bytes memory executionCallData = ExecutionLib.encodeSingle(execution.target, execution.value, execution.callData);
+        bytes memory executionCallData =
+            ExecutionLib.encodeSingle(execution.target, execution.value, execution.callData);
 
         // Prepare arrays for redeemDelegations
         bytes[] memory permissionContexts = new bytes[](1);
@@ -245,14 +247,19 @@ contract RecurringPaymentEIP7702Delegation is Script {
         Execution memory execution = Execution({ target: recipient, value: PAYMENT_AMOUNT, callData: hex"" });
 
         // Encode the execution
-        bytes memory executionCallData = ExecutionLib.encodeSingle(execution.target, execution.value, execution.callData);
+        bytes memory executionCallData =
+            ExecutionLib.encodeSingle(execution.target, execution.value, execution.callData);
 
         // Simulate multiple payment failures
         for (uint256 i = 0; i < MAX_DUNNING_ATTEMPTS; i++) {
             console2.log("\nSimulating payment failure #", i + 1);
 
-            bool nullified = recurringPaymentEnforcer.recordPaymentFailure(
-                delegation.caveats[0].terms, delegationHash, delegation.delegator, delegation.delegate, executionCallData
+            bool nullified = recurringPaymentDunningEnforcer.recordPaymentFailure(
+                delegation.caveats[0].terms,
+                delegationHash,
+                delegation.delegator,
+                delegation.delegate,
+                executionCallData
             );
 
             if (nullified) {
@@ -270,7 +277,7 @@ contract RecurringPaymentEIP7702Delegation is Script {
 
         // We can check if the subscription is already nullified by trying to call beforeHook
         // If it reverts with "subscription-nullified", then we know it's already nullified
-        try recurringPaymentEnforcer.beforeHook(
+        try recurringPaymentDunningEnforcer.beforeHook(
             delegation.caveats[0].terms,
             hex"",
             ModeLib.encodeSimpleSingle(),
@@ -294,8 +301,12 @@ contract RecurringPaymentEIP7702Delegation is Script {
         if (shouldAttemptNullify) {
             console2.log("\nSimulating final payment failure");
 
-            bool nullified = recurringPaymentEnforcer.recordPaymentFailure(
-                delegation.caveats[0].terms, delegationHash, delegation.delegator, delegation.delegate, executionCallData
+            bool nullified = recurringPaymentDunningEnforcer.recordPaymentFailure(
+                delegation.caveats[0].terms,
+                delegationHash,
+                delegation.delegator,
+                delegation.delegate,
+                executionCallData
             );
 
             console2.log("Subscription nullified:", nullified);

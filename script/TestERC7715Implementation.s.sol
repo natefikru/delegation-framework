@@ -85,7 +85,8 @@ contract TestERC7715Implementation is Script {
         Execution memory execution = Execution({ target: recipient, value: 0, callData: "" });
 
         // Encode the execution
-        bytes memory executionCalldata = ExecutionLib.encodeSingle(execution.target, execution.value, execution.callData);
+        bytes memory executionCalldata =
+            ExecutionLib.encodeSingle(execution.target, execution.value, execution.callData);
 
         // Create mode (simple single execution)
         ModeCode mode = ModeLib.encodeSimpleSingle();
@@ -99,7 +100,11 @@ contract TestERC7715Implementation is Script {
 
         bytes32 domainSeparator = keccak256(
             abi.encode(
-                DOMAIN_SEPARATOR_TYPEHASH, keccak256(bytes(name)), keccak256(bytes(version)), block.chainid, address(deleGator)
+                DOMAIN_SEPARATOR_TYPEHASH,
+                keccak256(bytes(name)),
+                keccak256(bytes(version)),
+                block.chainid,
+                address(deleGator)
             )
         );
 

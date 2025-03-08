@@ -7,7 +7,7 @@ import { ExecutionLib } from "@erc7579/lib/ExecutionLib.sol";
 import { ModeCode, Execution } from "../utils/Types.sol";
 
 /**
- * @title RecurringPaymentEnforcer
+ * @title RecurringPaymentDunningEnforcer
  * @notice This enforcer manages recurring payments with dunning functionality.
  * @dev It enforces:
  *  1. A minimum time interval between payment attempts
@@ -15,7 +15,7 @@ import { ModeCode, Execution } from "../utils/Types.sol";
  *  3. Dunning (retry) logic for failed payments
  *  4. Subscription nullification after exceeding maximum dunning attempts
  */
-contract RecurringPaymentEnforcer is CaveatEnforcer {
+contract RecurringPaymentDunningEnforcer is CaveatEnforcer {
     ////////////////////////////// State //////////////////////////////
 
     // Struct to track payment state for each delegation

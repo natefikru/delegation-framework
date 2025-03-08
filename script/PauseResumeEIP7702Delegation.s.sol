@@ -55,6 +55,9 @@ contract PauseResumeEIP7702Delegation is Script {
     uint256 public constant FEATURE_BASIC = 2;
     uint256 public constant FEATURE_ADMIN = 3;
 
+    // Nonce tracking
+    uint256 public currentNonce = 0;
+
     // Constants
     string constant EXECUTE_SIGNATURE = "execute(bytes,bytes)";
 
@@ -151,81 +154,45 @@ contract PauseResumeEIP7702Delegation is Script {
         console.log("PauseResumeEnforcer address:", address(pauseResumeEnforcer));
 
         // Create a delegation
-        console.log("\n=== Creating Delegation ===");
         Delegation memory delegation = createAndSignDelegation();
         bytes32 delegationHash = EncoderLib._getDelegationHash(delegation);
         console.log("Delegation hash:", vm.toString(delegationHash));
 
-        // Display initial pause state
-        console.log("\n=== Initial Pause State ===");
-        displayPauseState(delegationHash);
+        // Define example execution
+        Execution memory execution =
+            Execution({ target: address(0x123), value: 0, callData: abi.encodeWithSignature("exampleFunction()") });
 
-        // Step 1: Execute an action before pausing (should succeed)
+        // Execute action before pausing (should succeed)
         console.log("\n=== Step 1: Execute Action Before Pausing ===");
-        // Create simple calldata for demonstration (a no-op call)
-        bytes memory actionCallData = hex"";
-        executeAction(delegation, address(delegatorWallet), actionCallData);
+        executeAction(delegation, execution.target, execution.callData);
 
-        // Step 2: Pause the subscription (all features)
-        console.log("\n=== Step 2: Pause Subscription (All Features) ===");
-        uint256[] memory pausedFeatures = new uint256[](0); // Empty array = all features
-        bool pauseSuccess = pauseSubscription(delegationHash, pausedFeatures);
-        console.log("Pause success:", pauseSuccess ? "Yes" : "No");
+        // Pause the subscription
+        console.log("\n=== Step 2: Pause Subscription ===");
+        uint256[] memory pausedFeatures = new uint256[](0);
+        bool isPaused = pauseSubscription(delegationHash, pausedFeatures);
+        console.log("Subscription paused:", isPaused ? "Yes" : "No");
 
-        // Display pause state after pausing
-        console.log("\n=== Pause State After Pausing (All Features) ===");
-        displayPauseState(delegationHash);
+        // Check if the subscription is actually paused
+        bool isCurrentlyPaused = checkIfPaused(delegationHash);
+        console.log("Subscription is currently paused:", isCurrentlyPaused ? "Yes" : "No");
 
-        // Step 3: Try to execute an action while paused (should fail)
-        console.log("\n=== Step 3: Try to Execute Action While Paused ===");
-        executeAction(delegation, address(delegatorWallet), actionCallData);
+        // Execute action during pause (should fail)
+        console.log("\n=== Step 3: Execute Action During Pause ===");
+        executeAction(delegation, execution.target, execution.callData);
 
-        // Step 4: Resume the subscription
-        console.log("\n=== Step 4: Resume Subscription ===");
-        uint256 pauseDuration = resumeSubscription(delegationHash);
-        console.log("Pause duration:", vm.toString(pauseDuration), "seconds");
+        // Only attempt to resume if the subscription is actually paused
+        if (isCurrentlyPaused) {
+            // Resume the subscription
+            console.log("\n=== Step 4: Resume Subscription ===");
+            uint256 pauseDuration = resumeSubscription(delegationHash);
+            console.log("Subscription resumed with pause duration:", vm.toString(pauseDuration));
 
-        // Display pause state after resuming
-        console.log("\n=== Pause State After Resuming ===");
-        displayPauseState(delegationHash);
-
-        // Step 5: Execute an action after resuming (should succeed)
-        console.log("\n=== Step 5: Execute Action After Resuming ===");
-        executeAction(delegation, address(delegatorWallet), actionCallData);
-
-        // Step 6: Pause specific features
-        console.log("\n=== Step 6: Pause Specific Features ===");
-        uint256[] memory specificFeatures = new uint256[](2);
-        specificFeatures[0] = FEATURE_PREMIUM;
-        specificFeatures[1] = FEATURE_ADMIN;
-        pauseSuccess = pauseSubscription(delegationHash, specificFeatures);
-        console.log("Partial pause success:", pauseSuccess ? "Yes" : "No");
-
-        // Display pause state after partial pausing
-        console.log("\n=== Pause State After Partial Pausing ===");
-        displayPauseState(delegationHash);
-
-        // Step 7: Try to execute actions for different features
-        console.log("\n=== Step 7: Test Feature-Specific Pause ===");
-
-        // Try FEATURE_PREMIUM (should fail)
-        bytes memory premiumFeatureArgs = abi.encodePacked(bytes32(FEATURE_PREMIUM));
-        console.log("\nTrying to execute PREMIUM feature (ID: 1) - should fail");
-        executeAction(delegation, address(delegatorWallet), premiumFeatureArgs);
-
-        // Try FEATURE_BASIC (should succeed)
-        bytes memory basicFeatureArgs = abi.encodePacked(bytes32(FEATURE_BASIC));
-        console.log("\nTrying to execute BASIC feature (ID: 2) - should succeed");
-        executeAction(delegation, address(delegatorWallet), basicFeatureArgs);
-
-        // Step 8: Resume again
-        console.log("\n=== Step 8: Resume Subscription Again ===");
-        pauseDuration = resumeSubscription(delegationHash);
-        console.log("Pause duration:", vm.toString(pauseDuration), "seconds");
-
-        // Display final pause state
-        console.log("\n=== Final Pause State ===");
-        displayPauseState(delegationHash);
+            // Execute action after resuming (should succeed)
+            console.log("\n=== Step 5: Execute Action After Resuming ===");
+            executeAction(delegation, execution.target, execution.callData);
+        } else {
+            console.log("\n=== Step 4: Skip Resuming (Subscription Not Paused) ===");
+        }
     }
 
     /**
@@ -279,17 +246,22 @@ contract PauseResumeEIP7702Delegation is Script {
     /**
      * @notice Create a UserOperation for executing an action
      * @param delegation The delegation to use
-     * @param execution The execution details
+     * @param actionTarget The target address for the action
+     * @param actionCallData The calldata for the action
      * @return userOp The created UserOperation
      */
     function createUserOp(
         Delegation memory delegation,
-        Execution memory execution
+        address actionTarget,
+        bytes memory actionCallData
     )
         internal
         view
         returns (PackedUserOperation memory)
     {
+        // Create the execution
+        Execution memory execution = Execution({ target: actionTarget, value: 0, callData: actionCallData });
+
         // Encode the execution
         bytes memory executionCallData = ExecutionLib.encodeSingle(execution.target, execution.value, execution.callData);
 
@@ -307,14 +279,14 @@ contract PauseResumeEIP7702Delegation is Script {
         bytes memory redeemCallData =
             abi.encodeWithSelector(IDelegationManager.redeemDelegations.selector, permissionContexts, modes, executionCallDatas);
 
-        // Create the UserOperation
+        // Create the UserOperation with the current nonce
         return PackedUserOperation({
             sender: address(delegateWallet),
-            nonce: 0,
+            nonce: currentNonce,
             initCode: hex"",
             callData: redeemCallData,
-            accountGasLimits: bytes32(abi.encodePacked(uint128(100000), uint128(100000))),
-            preVerificationGas: 100000,
+            accountGasLimits: bytes32(abi.encodePacked(uint128(2000000), uint128(2000000))),
+            preVerificationGas: 2000000,
             gasFees: bytes32(abi.encodePacked(uint128(1000000000), uint128(1000000000))),
             paymasterAndData: hex"",
             signature: hex""
@@ -393,11 +365,27 @@ contract PauseResumeEIP7702Delegation is Script {
     }
 
     /**
+     * @notice Check if a subscription is currently paused
+     * @param delegationHash The hash of the delegation
+     * @return isPaused Whether the subscription is paused
+     */
+    function checkIfPaused(bytes32 delegationHash) internal view returns (bool) {
+        (bool isPaused,) = pauseResumeEnforcer.isSubscriptionPaused(delegationHash);
+        return isPaused;
+    }
+
+    /**
      * @notice Resume the subscription
      * @param delegationHash The hash of the delegation
      * @return pauseDuration The duration of the pause
      */
     function resumeSubscription(bytes32 delegationHash) internal returns (uint256) {
+        // First check if the subscription is actually paused
+        if (!checkIfPaused(delegationHash)) {
+            console.log("Cannot resume: subscription is not paused");
+            return 0;
+        }
+
         vm.startPrank(delegator);
         uint256 pauseDuration = pauseResumeEnforcer.resumeSubscription(delegationHash, address(delegatorWallet));
         vm.stopPrank();
@@ -413,12 +401,10 @@ contract PauseResumeEIP7702Delegation is Script {
      */
     function executeAction(Delegation memory delegation, address actionTarget, bytes memory actionCallData) internal {
         console.log("\n=== Executing Action ===");
-
-        // Create an execution
-        Execution memory execution = Execution({ target: actionTarget, value: 0, callData: actionCallData });
+        console.log("Current nonce:", vm.toString(currentNonce));
 
         // Create a UserOperation
-        PackedUserOperation memory userOp = createUserOp(delegation, execution);
+        PackedUserOperation memory userOp = createUserOp(delegation, actionTarget, actionCallData);
 
         // Sign the UserOperation
         console.log("Signing UserOperation...");
@@ -431,13 +417,66 @@ contract PauseResumeEIP7702Delegation is Script {
         PackedUserOperation[] memory userOps = new PackedUserOperation[](1);
         userOps[0] = userOp;
 
+        bool success = false;
         try entryPoint.handleOps(userOps, payable(delegate)) {
             console.log("UserOperation executed successfully");
+            success = true;
+            // Increment the nonce for the next operation
+            currentNonce++;
         } catch Error(string memory reason) {
             console.log("UserOperation execution failed:", reason);
+            // If the error is about an invalid nonce, increment it for the next try
+            if (bytes(reason).length > 0 && keccak256(bytes(reason)) == keccak256(bytes("AA25 invalid account nonce"))) {
+                console.log("Incrementing nonce due to invalid nonce error");
+                currentNonce++;
+            }
         } catch (bytes memory lowLevelData) {
             console.log("UserOperation execution failed with low level error");
             console.logBytes(lowLevelData);
+
+            // Try to extract error message from low level data
+            // This is a common format for AA errors: bytes4(0x220266b6) + offset(32) + length(32) + string data
+            if (lowLevelData.length >= 68) {
+                bytes4 errorSelector;
+                assembly {
+                    errorSelector := mload(add(lowLevelData, 0x20))
+                }
+
+                // Check if it's the FailedOp error selector
+                if (errorSelector == bytes4(0x220266b6)) {
+                    // Extract the error message if possible
+                    uint256 dataOffset;
+                    assembly {
+                        dataOffset := mload(add(lowLevelData, 0x24))
+                    }
+
+                    if (dataOffset == 0x40) {
+                        // Standard offset for string in FailedOp
+                        uint256 errorLength;
+                        assembly {
+                            errorLength := mload(add(lowLevelData, 0x44))
+                        }
+
+                        if (errorLength > 0 && errorLength <= 100) {
+                            // Reasonable length for error message
+                            bytes memory errorMsg = new bytes(errorLength);
+                            for (uint256 i = 0; i < errorLength; i++) {
+                                if (0x64 + i < lowLevelData.length) {
+                                    errorMsg[i] = lowLevelData[0x64 + i];
+                                }
+                            }
+                            string memory errorString = string(errorMsg);
+                            console.log("Extracted error:", errorString);
+
+                            // If it's an invalid nonce error, increment the nonce
+                            if (keccak256(bytes(errorString)) == keccak256(bytes("AA25 invalid account nonce"))) {
+                                console.log("Incrementing nonce due to invalid nonce error");
+                                currentNonce++;
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         vm.stopBroadcast();

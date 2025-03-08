@@ -5,7 +5,7 @@ import { Script } from "forge-std/Script.sol";
 import { console2 } from "forge-std/console2.sol";
 
 import { DelegationManager } from "../src/DelegationManager.sol";
-import { RecurringPaymentEnforcer } from "../src/cyphera_enforcers/RecurringPaymentEnforcer.sol";
+import { RecurringPaymentDunningEnforcer } from "../src/cyphera_enforcers/RecurringPaymentDunningEnforcer.sol";
 import { Execution, Delegation, Caveat, ModeCode } from "../src/utils/Types.sol";
 import { ExecutionLib } from "@erc7579/lib/ExecutionLib.sol";
 import { ModeLib } from "@erc7579/lib/ModeLib.sol";
@@ -37,7 +37,7 @@ contract RecurringPaymentDelegation is Script {
 
     // Contracts
     DelegationManager delegationManager;
-    RecurringPaymentEnforcer recurringPaymentEnforcer;
+    RecurringPaymentDunningEnforcer recurringPaymentDunningEnforcer;
 
     // Constants for delegation
     bytes32 private constant ROOT_AUTHORITY = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
@@ -56,12 +56,12 @@ contract RecurringPaymentDelegation is Script {
         // Deploy contracts
         vm.startBroadcast();
         delegationManager = new DelegationManager(address(this));
-        recurringPaymentEnforcer = new RecurringPaymentEnforcer();
+        recurringPaymentDunningEnforcer = new RecurringPaymentDunningEnforcer();
         vm.stopBroadcast();
 
         console2.log("Contracts deployed:");
         console2.log("DelegationManager:", address(delegationManager));
-        console2.log("RecurringPaymentEnforcer:", address(recurringPaymentEnforcer));
+        console2.log("RecurringPaymentEnforcer:", address(recurringPaymentDunningEnforcer));
         console2.log("Accounts:");
         console2.log("Delegator:", delegator);
         console2.log("Delegate:", delegate);
@@ -104,7 +104,7 @@ contract RecurringPaymentDelegation is Script {
         // Use single mode for our execution
         ModeCode mode = ModeLib.encodeSimpleSingle();
 
-        try recurringPaymentEnforcer.beforeHook(
+        try recurringPaymentDunningEnforcer.beforeHook(
             terms,
             hex"", // args
             mode,
@@ -116,7 +116,7 @@ contract RecurringPaymentDelegation is Script {
             console2.log("[OK] Payment conditions validated successfully");
 
             // Check payment state
-            RecurringPaymentEnforcer.PaymentState memory state = getPaymentState(delegationHash);
+            RecurringPaymentDunningEnforcer.PaymentState memory state = getPaymentState(delegationHash);
             console2.log("Payment state after beforeHook:");
             console2.log("  Last attempt time:", state.lastAttemptTime);
             console2.log("  Successful payments:", state.successfulPayments);
@@ -126,7 +126,7 @@ contract RecurringPaymentDelegation is Script {
             // Demonstrate afterHook (records successful payment)
             console2.log("\n2. Testing afterHook (records successful payment)");
 
-            recurringPaymentEnforcer.afterHook(
+            recurringPaymentDunningEnforcer.afterHook(
                 terms,
                 hex"", // args
                 mode,
@@ -150,7 +150,7 @@ contract RecurringPaymentDelegation is Script {
             console2.log("\n3. Testing dunning functionality");
 
             bool nullified =
-                recurringPaymentEnforcer.recordPaymentFailure(terms, delegationHash, delegator, delegate, executionCallData);
+                recurringPaymentDunningEnforcer.recordPaymentFailure(terms, delegationHash, delegator, delegate, executionCallData);
 
             console2.log("Payment failure recorded. Subscription nullified:", nullified ? "Yes" : "No");
 
@@ -166,8 +166,9 @@ contract RecurringPaymentDelegation is Script {
             console2.log("\n4. Testing multiple dunning attempts");
 
             for (uint256 i = 1; i < MAX_DUNNING_ATTEMPTS; i++) {
-                nullified =
-                    recurringPaymentEnforcer.recordPaymentFailure(terms, delegationHash, delegator, delegate, executionCallData);
+                nullified = recurringPaymentDunningEnforcer.recordPaymentFailure(
+                    terms, delegationHash, delegator, delegate, executionCallData
+                );
 
                 console2.log("Dunning attempt", i + 1, "recorded. Subscription nullified:", nullified ? "Yes" : "No");
 
@@ -184,7 +185,7 @@ contract RecurringPaymentDelegation is Script {
             if (state.isNullified) {
                 console2.log("\n5. Testing behavior after subscription is nullified");
 
-                try recurringPaymentEnforcer.beforeHook(
+                try recurringPaymentDunningEnforcer.beforeHook(
                     terms,
                     hex"", // args
                     mode,
@@ -214,11 +215,11 @@ contract RecurringPaymentDelegation is Script {
      * @param delegationHash The hash of the delegation
      * @return The payment state
      */
-    function getPaymentState(bytes32 delegationHash) internal view returns (RecurringPaymentEnforcer.PaymentState memory) {
+    function getPaymentState(bytes32 delegationHash) internal view returns (RecurringPaymentDunningEnforcer.PaymentState memory) {
         (uint256 lastAttemptTime, uint256 successfulPayments, uint256 currentDunningAttempts, bool isNullified) =
-            recurringPaymentEnforcer.paymentStates(delegationHash);
+            recurringPaymentDunningEnforcer.paymentStates(delegationHash);
 
-        return RecurringPaymentEnforcer.PaymentState({
+        return RecurringPaymentDunningEnforcer.PaymentState({
             lastAttemptTime: lastAttemptTime,
             successfulPayments: successfulPayments,
             currentDunningAttempts: currentDunningAttempts,

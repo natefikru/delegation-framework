@@ -18,6 +18,7 @@ import { IEntryPoint } from "@account-abstraction/interfaces/IEntryPoint.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import { PackedUserOperation } from "@account-abstraction/interfaces/PackedUserOperation.sol";
 import { IERC173 } from "../src/interfaces/IERC173.sol";
+import { Counter } from "../test/utils/Counter.t.sol";
 
 /**
  * @title TrialPeriodEIP7702Delegation
@@ -42,19 +43,20 @@ contract TrialPeriodEIP7702Delegation is Script {
     HybridDeleGator public delegatorWallet;
     HybridDeleGator public delegateWallet;
     TrialPeriodEnforcer public trialPeriodEnforcer;
+    Counter public counterContract;
 
-    // Service provider and payment parameters
-    address public constant SERVICE_PROVIDER = address(0x123);
-    uint256 public constant PAYMENT_AMOUNT = 0.05 ether;
-
-    // Trial period parameters
-    uint256 public constant TRIAL_DURATION = 7 days;
-    uint256 public constant MAX_TRIAL_USAGE = 10;
-    uint256 public constant RESERVED_VALUE = 0;
+    // Trial parameters
+    uint256 public constant TRIAL_DURATION = 30 days;
+    uint256 public constant MAX_USAGE = 10;
+    uint256 public constant PAYMENT_AMOUNT = 0.01 ether;
+    uint256 public constant RESERVED = 0;
     bytes32 private constant ROOT_AUTHORITY = bytes32(0);
 
-    // Nonce tracking for UserOperations
-    uint256 private currentNonce = 0;
+    // Nonce tracking
+    uint256 public currentNonce = 0;
+
+    // Constants
+    string constant EXECUTE_SIGNATURE = "execute(bytes,bytes)";
 
     /**
      * @notice Set up test accounts and deploy contracts
@@ -71,14 +73,12 @@ contract TrialPeriodEIP7702Delegation is Script {
         // Label addresses for debugging
         vm.label(delegator, "Delegator");
         vm.label(delegate, "Delegate");
-        vm.label(SERVICE_PROVIDER, "Service Provider");
 
         // Send ETH to addresses
         vm.deal(delegator, 100 ether);
         vm.deal(delegate, 100 ether);
-        vm.deal(SERVICE_PROVIDER, 1 ether);
 
-        // Start broadcast for deploying contracts
+        // Start Broadcast
         vm.startBroadcast();
 
         // Create Entry Point
@@ -93,7 +93,7 @@ contract TrialPeriodEIP7702Delegation is Script {
         factory = new SimpleFactory();
         vm.label(address(factory), "SimpleFactory");
 
-        // Create Trial Period Enforcer
+        // Create TrialPeriod Enforcer
         trialPeriodEnforcer = new TrialPeriodEnforcer();
         vm.label(address(trialPeriodEnforcer), "TrialPeriodEnforcer");
 
@@ -129,6 +129,10 @@ contract TrialPeriodEIP7702Delegation is Script {
         delegateWallet = HybridDeleGator(payable(delegateWalletAddress));
         vm.label(address(delegateWallet), "DelegateWallet");
 
+        // Deploy a Counter contract for testing
+        counterContract = new Counter(address(delegatorWallet));
+        vm.label(address(counterContract), "CounterContract");
+
         // Send money to wallets and entryPoint
         vm.deal(address(delegatorWallet), 10 ether);
         vm.deal(address(entryPoint), 10 ether);
@@ -138,7 +142,7 @@ contract TrialPeriodEIP7702Delegation is Script {
     }
 
     /**
-     * @notice Run the script to demonstrate the TrialPeriodEnforcer integration with EIP-7702
+     * @notice Run the script
      */
     function run() public {
         setUp();
@@ -149,212 +153,96 @@ contract TrialPeriodEIP7702Delegation is Script {
         console.log("Delegate address:", delegate);
         console.log("DelegatorWallet address:", address(delegatorWallet));
         console.log("TrialPeriodEnforcer address:", address(trialPeriodEnforcer));
-        console.log("Service Provider address:", SERVICE_PROVIDER);
-        console.log("Initial Service Provider balance:", vm.toString(address(SERVICE_PROVIDER).balance));
+        console.log("Counter contract address:", address(counterContract));
 
-        // Scenario 1: Standard Trial Flow
-        runStandardTrialFlow();
-
-        // Scenario 2: Trial with Maximum Usage
-        runMaxUsageTrialFlow();
-
-        // Scenario 3: Auto Transition to Paid Subscription
-        runAutoTransitionFlow();
-
-        // Scenario 4: Check Eligibility and Multiple Trials
-        runEligibilityCheckFlow();
-
-        // Final summary
-        console.log("\n=== Final Summary ===");
-        console.log("Demonstrated 4 different trial period scenarios:");
-        console.log("1. Standard Trial Flow: User starts trial, uses the service, manually ends trial, makes payment");
-        console.log("2. Maximum Usage Trial: User exhausts all available usages during trial");
-        console.log("3. Auto Transition: Trial period expires and automatically transitions to paid subscription");
-        console.log("4. Eligibility Check: Prevents users from starting multiple trials");
-        console.log("Final Service Provider balance:", vm.toString(address(SERVICE_PROVIDER).balance));
-    }
-
-    /**
-     * @notice Demonstrate a standard trial flow
-     */
-    function runStandardTrialFlow() internal {
-        console.log("\n=== SCENARIO 1: STANDARD TRIAL FLOW ===");
-
-        // Create delegation for standard trial
-        Delegation memory delegation = createAndSignDelegation(TRIAL_DURATION, MAX_TRIAL_USAGE, PAYMENT_AMOUNT);
+        // Create a delegation
+        Delegation memory delegation = createAndSignDelegation();
         bytes32 delegationHash = EncoderLib._getDelegationHash(delegation);
         console.log("Delegation hash:", vm.toString(delegationHash));
 
-        // Start the trial
-        startTrial(delegationHash, false);
+        // Define example service execution (simulating a service usage with counter increment)
+        Execution memory serviceExecution = Execution({
+            target: address(counterContract),
+            value: 0,
+            callData: abi.encodeWithSelector(Counter.increment.selector)
+        });
 
-        // Display initial trial state
-        displayTrialState(delegationHash);
+        // Define payment execution (for after trial)
+        Execution memory paymentExecution =
+            Execution({ target: address(delegateWallet), value: PAYMENT_AMOUNT, callData: hex"" });
 
-        // Use the service during trial (2 times)
-        console.log("\n=== Step 1: Use Service During Trial ===");
-        useServiceDuringTrial(delegation);
-        useServiceDuringTrial(delegation);
+        // Step 1: Check trial eligibility and initial counter value
+        console.log("\n=== Step 1: Check Trial Eligibility and Initial State ===");
+        bool hasUsedTrial = trialPeriodEnforcer.trialEligibility(address(delegatorWallet));
+        console.log("Has delegator used trial before:", hasUsedTrial ? "Yes" : "No");
 
-        // Advance time (half the trial duration)
-        console.log("\n=== Step 2: Advance Time (Half Trial Duration) ===");
-        advanceTime(TRIAL_DURATION / 2);
+        uint256 initialCount = counterContract.count();
+        console.log("Initial counter value:", vm.toString(initialCount));
 
-        // Use the service again
-        useServiceDuringTrial(delegation);
+        // Step 2: Start trial manually
+        console.log("\n=== Step 2: Start Trial ===");
+        vm.startBroadcast();
+        bool trialStarted =
+            trialPeriodEnforcer.startTrial(delegation.caveats[0].terms, delegationHash, address(delegatorWallet), true);
+        vm.stopBroadcast();
+        console.log("Trial started:", trialStarted ? "Yes" : "No");
 
-        // Manually end the trial
-        console.log("\n=== Step 3: Manually End Trial ===");
-        endTrial(delegationHash);
+        // Check if trial is active
+        (bool isTrialActive, uint256 startTime, uint256 usageCount) = trialPeriodEnforcer.isTrialActive(delegationHash);
+        console.log("Is trial active:", isTrialActive ? "Yes" : "No");
+        console.log("Trial start time:", vm.toString(startTime));
+        console.log("Usage count:", vm.toString(usageCount));
 
-        // Make a payment
-        console.log("\n=== Step 4: Make Payment After Trial ===");
-        makePayment(delegation, PAYMENT_AMOUNT);
+        // Step 3: Execute service during trial
+        console.log("\n=== Step 3: Execute Service During Trial ===");
+        bool success = executeAction(delegation, serviceExecution.target, serviceExecution.callData);
 
-        // Display final state
-        displayTrialState(delegationHash);
-    }
+        if (success) {
+            // Check updated usage count and counter value
+            (,, usageCount) = trialPeriodEnforcer.isTrialActive(delegationHash);
+            console.log("Updated usage count:", vm.toString(usageCount));
 
-    /**
-     * @notice Demonstrate trial with maximum usage reached
-     */
-    function runMaxUsageTrialFlow() internal {
-        // Reset the timestamp for a clean start
-        vm.warp(block.timestamp - block.timestamp % 86400);
-
-        console.log("\n=== SCENARIO 2: MAXIMUM USAGE TRIAL FLOW ===");
-
-        // Create delegation with limited usage (3 uses)
-        Delegation memory delegation = createAndSignDelegation(TRIAL_DURATION, 3, PAYMENT_AMOUNT);
-        bytes32 delegationHash = EncoderLib._getDelegationHash(delegation);
-        console.log("Delegation hash:", vm.toString(delegationHash));
-
-        // Start the trial
-        startTrial(delegationHash, false);
-
-        // Display initial trial state
-        displayTrialState(delegationHash);
-
-        // Use the service until maximum is reached
-        console.log("\n=== Step 1: Use Service Until Maximum is Reached ===");
-        useServiceDuringTrial(delegation); // Usage 1/3
-        useServiceDuringTrial(delegation); // Usage 2/3
-        useServiceDuringTrial(delegation); // Usage 3/3
-        console.log("\n=== Attempting to use service beyond maximum usage ===");
-
-        // This should fail or be rejected by the enforcer
-        try vm.expectRevert("TrialPeriodEnforcer:usage-limit-exceeded") {
-            useServiceDuringTrial(delegation); // Should fail: Usage 4/3
-        } catch Error(string memory reason) {
-            console.log("Failed to use service beyond limit:", reason);
-        } catch {
-            console.log("Failed to use service beyond limit");
+            uint256 countAfterFirstUse = counterContract.count();
+            console.log("Counter value after first use:", vm.toString(countAfterFirstUse));
+        } else {
+            console.log("Failed to execute service during trial");
         }
 
-        // End the trial and make payment
-        console.log("\n=== Step 2: End Trial and Make Payment ===");
-        endTrial(delegationHash);
-        makePayment(delegation, PAYMENT_AMOUNT);
+        // Step 4: Fast forward time to end of trial period
+        console.log("\n=== Step 4: Fast Forward to End of Trial Period ===");
+        vm.warp(block.timestamp + TRIAL_DURATION + 1);
+        console.log("Time advanced by:", vm.toString(TRIAL_DURATION + 1), "seconds");
 
-        // Display final state
-        displayTrialState(delegationHash);
+        // Step 5: Execute payment after trial period
+        console.log("\n=== Step 5: Execute Payment After Trial Period ===");
+        success = executeAction(delegation, paymentExecution.target, paymentExecution.callData);
+
+        if (success) {
+            // Check if paid subscription is active
+            (bool isPaidActive, uint256 paymentAmount) = trialPeriodEnforcer.isPaidSubscriptionActive(delegationHash);
+            console.log("Is paid subscription active:", isPaidActive ? "Yes" : "No");
+            console.log("Payment amount:", vm.toString(paymentAmount));
+        } else {
+            console.log("Failed to execute payment after trial period");
+        }
+
+        // Step 6: Continue using service with paid subscription
+        console.log("\n=== Step 6: Continue Using Service with Paid Subscription ===");
+        success = executeAction(delegation, serviceExecution.target, serviceExecution.callData);
+
+        if (success) {
+            uint256 finalCount = counterContract.count();
+            console.log("Final counter value:", vm.toString(finalCount));
+        } else {
+            console.log("Failed to use service with paid subscription");
+        }
     }
 
     /**
-     * @notice Demonstrate automatic transition from trial to paid subscription
-     */
-    function runAutoTransitionFlow() internal {
-        // Reset the timestamp for a clean start
-        vm.warp(block.timestamp - block.timestamp % 86400);
-
-        console.log("\n=== SCENARIO 3: AUTO TRANSITION FLOW ===");
-
-        // Create delegation with short trial period (1 hour)
-        uint256 shortTrialDuration = 1 hours;
-        Delegation memory delegation = createAndSignDelegation(shortTrialDuration, MAX_TRIAL_USAGE, PAYMENT_AMOUNT);
-        bytes32 delegationHash = EncoderLib._getDelegationHash(delegation);
-        console.log("Delegation hash:", vm.toString(delegationHash));
-
-        // Start the trial
-        startTrial(delegationHash, false);
-
-        // Display initial trial state
-        displayTrialState(delegationHash);
-
-        // Use the service once during trial
-        console.log("\n=== Step 1: Use Service During Trial ===");
-        useServiceDuringTrial(delegation);
-
-        // Advance time past trial duration
-        console.log("\n=== Step 2: Advance Time Past Trial Duration ===");
-        advanceTime(shortTrialDuration + 1 minutes);
-
-        // Try to use the service - should trigger auto-transition
-        console.log("\n=== Step 3: Use Service After Trial Period (Auto-Transition) ===");
-        makePayment(delegation, PAYMENT_AMOUNT);
-
-        // Display final state
-        displayTrialState(delegationHash);
-    }
-
-    /**
-     * @notice Demonstrate eligibility check to prevent multiple trials
-     */
-    function runEligibilityCheckFlow() internal {
-        // Reset the timestamp for a clean start
-        vm.warp(block.timestamp - block.timestamp % 86400);
-
-        console.log("\n=== SCENARIO 4: ELIGIBILITY CHECK FLOW ===");
-
-        // Create first delegation
-        Delegation memory delegation1 = createAndSignDelegation(TRIAL_DURATION, MAX_TRIAL_USAGE, PAYMENT_AMOUNT);
-        bytes32 delegationHash1 = EncoderLib._getDelegationHash(delegation1);
-        console.log("First delegation hash:", vm.toString(delegationHash1));
-
-        // Start the first trial with eligibility check
-        console.log("\n=== Step 1: Start First Trial with Eligibility Check ===");
-        startTrial(delegationHash1, true);
-
-        // Use the service with first delegation
-        useServiceDuringTrial(delegation1);
-
-        // Create second delegation
-        Delegation memory delegation2 = createAndSignDelegation(TRIAL_DURATION, MAX_TRIAL_USAGE, PAYMENT_AMOUNT);
-        bytes32 delegationHash2 = EncoderLib._getDelegationHash(delegation2);
-        console.log("\nSecond delegation hash:", vm.toString(delegationHash2));
-
-        // Try to start a second trial (should be rejected due to eligibility check)
-        console.log("\n=== Step 2: Attempt to Start Second Trial (Should Fail) ===");
-        bool secondTrialStarted = startTrial(delegationHash2, true);
-        console.log("Second trial started:", secondTrialStarted ? "Yes" : "No");
-
-        // End the first trial and make payment
-        console.log("\n=== Step 3: End First Trial and Make Payment ===");
-        endTrial(delegationHash1);
-        makePayment(delegation1, PAYMENT_AMOUNT);
-
-        // Display final states
-        console.log("\n=== First Trial Final State ===");
-        displayTrialState(delegationHash1);
-        console.log("\n=== Second Trial State (Should Not Be Active) ===");
-        displayTrialState(delegationHash2);
-    }
-
-    /**
-     * @notice Create and sign a delegation for the trial period enforcement
-     * @param _trialDuration Duration of the trial period in seconds
-     * @param _maxUsage Maximum number of times the service can be used during trial
-     * @param _paymentAmount The amount to be paid after trial (in wei)
+     * @notice Create and sign a delegation for trial period
      * @return delegation The created and signed delegation
      */
-    function createAndSignDelegation(
-        uint256 _trialDuration,
-        uint256 _maxUsage,
-        uint256 _paymentAmount
-    )
-        internal
-        returns (Delegation memory)
-    {
+    function createAndSignDelegation() internal returns (Delegation memory) {
         // Create a delegation from delegator to delegate
         Delegation memory delegation;
         delegation.delegator = address(delegatorWallet);
@@ -362,11 +250,12 @@ contract TrialPeriodEIP7702Delegation is Script {
         delegation.authority = ROOT_AUTHORITY;
 
         // Create the terms for the TrialPeriodEnforcer
+        // The terms should be 128 bytes (4 uint256 values)
         bytes memory terms = abi.encodePacked(
-            uint256(_trialDuration), // Trial duration (padded to 32 bytes)
-            uint256(_maxUsage), // Maximum usage during trial (padded to 32 bytes)
-            uint256(_paymentAmount), // Payment amount after trial (padded to 32 bytes)
-            uint256(RESERVED_VALUE) // Reserved for future use (padded to 32 bytes)
+            uint256(TRIAL_DURATION), // Trial duration (30 days)
+            uint256(MAX_USAGE), // Maximum number of usages during trial (10)
+            uint256(PAYMENT_AMOUNT), // Payment amount after trial (0.01 ether)
+            uint256(RESERVED) // Reserved for future use
         );
 
         // Create the caveat with the TrialPeriodEnforcer
@@ -398,30 +287,27 @@ contract TrialPeriodEIP7702Delegation is Script {
     }
 
     /**
-     * @notice Create a UserOperation for executing a service action or payment
+     * @notice Create a UserOperation for executing an action
      * @param delegation The delegation to use
-     * @param target The target address (service provider or payment recipient)
-     * @param value The amount of ETH to transfer (0 for service usage during trial)
-     * @param args Additional arguments for the caveat enforcer
+     * @param target The target address for the action
+     * @param callData The calldata for the action
      * @return userOp The created UserOperation
-     * @dev Note: When running this script, you may encounter "memory allocation error (0x41)"
-     * when calling redeemDelegations. This is a known issue with the complex data structures
-     * and doesn't affect the demonstration of the script's main concepts.
      */
     function createUserOp(
         Delegation memory delegation,
         address target,
-        uint256 value,
-        bytes memory args
+        bytes memory callData
     )
         internal
+        view
         returns (PackedUserOperation memory)
     {
-        // Create an execution
-        Execution memory execution = Execution({ target: target, value: value, callData: hex"" });
+        // Create the execution
+        Execution memory execution = Execution({ target: target, value: 0, callData: callData });
 
         // Encode the execution
-        bytes memory executionCallData = ExecutionLib.encodeSingle(execution.target, execution.value, execution.callData);
+        bytes memory executionCallData =
+            ExecutionLib.encodeSingle(execution.target, execution.value, execution.callData);
 
         // Prepare arrays for redeemDelegations
         bytes[] memory permissionContexts = new bytes[](1);
@@ -434,47 +320,18 @@ contract TrialPeriodEIP7702Delegation is Script {
         executionCallDatas[0] = executionCallData;
 
         // Create the calldata for the delegateWallet to call redeemDelegations
-        bytes memory redeemCallData;
+        bytes memory redeemCallData = abi.encodeWithSelector(
+            IDelegationManager.redeemDelegations.selector, permissionContexts, modes, executionCallDatas
+        );
 
-        if (args.length > 0) {
-            // If args are provided, use them in the redemption
-            bytes[] memory argsArray = new bytes[](1);
-            argsArray[0] = args;
-
-            // Instead of using redeemDelegationsWithArgs directly, craft the calldata ourselves
-            // This avoids issues with function not being found in the interface
-            redeemCallData = abi.encodeWithSelector(
-                bytes4(keccak256("redeemDelegations(bytes[],bytes4[],bytes[])")), permissionContexts, modes, executionCallDatas
-            );
-
-            // If we need to include args, we'll add them differently
-            // We'll set this directly in the delegation's caveat args
-            delegation.caveats[0].args = args;
-
-            // Re-encode the permissionContext with the updated delegation
-            permissionContexts[0] = abi.encode(delegation);
-
-            // Update the redeemCallData with the new permissionContexts that include args
-            redeemCallData =
-                abi.encodeWithSelector(IDelegationManager.redeemDelegations.selector, permissionContexts, modes, executionCallDatas);
-        } else {
-            // Standard redemption without args
-            redeemCallData =
-                abi.encodeWithSelector(IDelegationManager.redeemDelegations.selector, permissionContexts, modes, executionCallDatas);
-        }
-
-        // Use the current nonce and increment it for the next operation
-        uint256 nonce = currentNonce;
-        currentNonce++;
-
-        // Create the UserOperation with the incremented nonce
+        // Create the UserOperation with the current nonce
         return PackedUserOperation({
             sender: address(delegateWallet),
-            nonce: nonce,
+            nonce: currentNonce,
             initCode: hex"",
             callData: redeemCallData,
-            accountGasLimits: bytes32(abi.encodePacked(uint128(100000), uint128(100000))),
-            preVerificationGas: 100000,
+            accountGasLimits: bytes32(abi.encodePacked(uint128(2000000), uint128(2000000))),
+            preVerificationGas: 2000000,
             gasFees: bytes32(abi.encodePacked(uint128(1000000000), uint128(1000000000))),
             paymasterAndData: hex"",
             signature: hex""
@@ -491,13 +348,13 @@ contract TrialPeriodEIP7702Delegation is Script {
         bytes32 typedDataHash = delegateWallet.getPackedUserOperationTypedDataHash(userOp);
 
         // Log the typed data hash for debugging
-        console.log("UserOp - Typed Data Hash:", vm.toString(typedDataHash));
+        console.log("Typed Data Hash:", vm.toString(typedDataHash));
 
         // Log the wallet's owner
         address walletOwner = IERC173(address(delegateWallet)).owner();
-        console.log("UserOp - Wallet Owner:", walletOwner);
-        console.log("UserOp - Delegate Address:", delegate);
-        console.log("UserOp - Owner matches delegate?", walletOwner == delegate ? "Yes" : "No");
+        console.log("Wallet Owner:", walletOwner);
+        console.log("Delegate Address:", delegate);
+        console.log("Owner matches delegate?", walletOwner == delegate ? "Yes" : "No");
 
         // Sign the message with the delegate's private key
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(delegatePrivateKey, typedDataHash);
@@ -507,131 +364,10 @@ contract TrialPeriodEIP7702Delegation is Script {
 
         // Recover the address from the signature for verification
         address recoveredAddr = ECDSA.recover(typedDataHash, v, r, s);
-        console.log("UserOp - Recovered Address:", recoveredAddr);
-        console.log("UserOp - Recovered address matches delegate?", recoveredAddr == delegate ? "Yes" : "No");
+        console.log("Recovered Address:", recoveredAddr);
+        console.log("Recovered address matches delegate?", recoveredAddr == delegate ? "Yes" : "No");
 
         return userOp;
-    }
-
-    /**
-     * @notice Helper function to execute a UserOperation
-     * @param userOp The UserOperation to execute
-     * @return success Whether the execution was successful
-     * @return result The result of the execution
-     */
-    function executeUserOp(PackedUserOperation memory userOp) internal returns (bool success, bytes memory result) {
-        console.log("\n=== Executing UserOperation ===");
-
-        // Create an array with a single UserOperation
-        PackedUserOperation[] memory userOps = new PackedUserOperation[](1);
-        userOps[0] = userOp;
-
-        // Execute the UserOperation
-        (success, result) =
-            address(entryPoint).call(abi.encodeWithSelector(EntryPoint.handleOps.selector, userOps, payable(delegate)));
-
-        if (success) {
-            console.log("UserOperation executed successfully");
-        } else {
-            bytes memory reason;
-            assembly {
-                reason := add(result, 0x04)
-            }
-
-            if (reason.length > 0) {
-                console.log("UserOperation execution failed:", string(reason));
-            } else {
-                console.log("UserOperation execution failed with no reason");
-            }
-        }
-
-        return (success, result);
-    }
-
-    /**
-     * @notice Start a trial period for a delegation
-     * @param delegationHash The hash of the delegation
-     * @param checkEligibility Whether to check if the delegator has used a trial before
-     * @return success Whether the trial was successfully started
-     */
-    function startTrial(bytes32 delegationHash, bool checkEligibility) internal returns (bool) {
-        console.log("\n=== Starting Trial ===");
-
-        // Encode the terms
-        bytes memory terms =
-            abi.encodePacked(uint256(TRIAL_DURATION), uint256(MAX_TRIAL_USAGE), uint256(PAYMENT_AMOUNT), uint256(RESERVED_VALUE));
-
-        vm.startPrank(delegator);
-        bool success = trialPeriodEnforcer.startTrial(terms, delegationHash, address(delegatorWallet), checkEligibility);
-        vm.stopPrank();
-
-        console.log("Trial started:", success ? "Yes" : "No");
-        console.log("  Trial duration:", vm.toString(TRIAL_DURATION), "seconds");
-        console.log("  Max usage:", vm.toString(MAX_TRIAL_USAGE));
-        console.log("  Payment after trial:", vm.toString(PAYMENT_AMOUNT));
-
-        return success;
-    }
-
-    /**
-     * @notice Use the service during the trial period
-     * @param delegation The delegation to use
-     * @return success Whether the service usage was successful
-     */
-    function useServiceDuringTrial(Delegation memory delegation) internal returns (bool) {
-        console.log("\n=== Using Service During Trial ===");
-
-        // Create a UserOperation for service usage (no payment during trial)
-        PackedUserOperation memory serviceUserOp = createUserOp(delegation, SERVICE_PROVIDER, 0, "");
-
-        // Sign and execute the service UserOperation
-        serviceUserOp = signUserOp(serviceUserOp);
-        (bool success,) = executeUserOp(serviceUserOp);
-
-        // Check trial state after usage
-        displayTrialState(EncoderLib._getDelegationHash(delegation));
-
-        return success;
-    }
-
-    /**
-     * @notice End a trial period and transition to paid subscription
-     * @param delegationHash The hash of the delegation
-     * @return success Whether the trial was successfully ended
-     */
-    function endTrial(bytes32 delegationHash) internal returns (bool) {
-        console.log("\n=== Ending Trial ===");
-
-        vm.startPrank(delegator);
-        bool success = trialPeriodEnforcer.endTrial(delegationHash, address(delegatorWallet), address(delegateWallet));
-        vm.stopPrank();
-
-        console.log("Trial ended:", success ? "Yes" : "No");
-
-        // Display the trial state after ending
-        displayTrialState(delegationHash);
-
-        return success;
-    }
-
-    /**
-     * @notice Make a payment after the trial period ends
-     * @param delegation The delegation to use
-     * @param paymentAmount The amount to pay
-     * @return success Whether the payment was successful
-     */
-    function makePayment(Delegation memory delegation, uint256 paymentAmount) internal returns (bool) {
-        console.log("\n=== Making Payment After Trial ===");
-        console.log("Payment amount:", vm.toString(paymentAmount));
-
-        // Create a UserOperation for payment
-        PackedUserOperation memory paymentUserOp = createUserOp(delegation, SERVICE_PROVIDER, paymentAmount, "");
-
-        // Sign and execute the payment UserOperation
-        paymentUserOp = signUserOp(paymentUserOp);
-        (bool success,) = executeUserOp(paymentUserOp);
-
-        return success;
     }
 
     /**
@@ -639,51 +375,120 @@ contract TrialPeriodEIP7702Delegation is Script {
      * @param delegationHash The hash of the delegation
      */
     function displayTrialState(bytes32 delegationHash) internal view {
-        console.log("\n=== Trial State ===");
+        (bool isTrialActive, uint256 startTime, uint256 usageCount) = trialPeriodEnforcer.isTrialActive(delegationHash);
+        (bool isPaidActive, uint256 paymentAmount) = trialPeriodEnforcer.isPaidSubscriptionActive(delegationHash);
 
-        try trialPeriodEnforcer.isTrialActive(delegationHash) returns (bool isActive, uint256 startTime, uint256 usageCount) {
-            console.log("  Trial active:", isActive ? "Yes" : "No");
-            console.log("  Trial start time:", vm.toString(startTime));
-            console.log("  Usage count:", vm.toString(usageCount));
-
-            if (startTime > 0) {
-                console.log("  Trial elapsed time:", vm.toString(block.timestamp - startTime), "seconds");
-
-                if (TRIAL_DURATION > block.timestamp - startTime) {
-                    console.log("  Trial remaining time:", vm.toString(TRIAL_DURATION - (block.timestamp - startTime)), "seconds");
-                } else {
-                    console.log("  Trial remaining time: 0 seconds (expired)");
-                }
-            }
-
-            console.log("  Usage limit:", vm.toString(MAX_TRIAL_USAGE));
-            console.log("  Remaining usage:", usageCount < MAX_TRIAL_USAGE ? vm.toString(MAX_TRIAL_USAGE - usageCount) : "0");
-        } catch Error(string memory reason) {
-            console.log("Failed to get trial state:", reason);
-        } catch {
-            console.log("Failed to get trial state");
+        console.log("Trial State:");
+        console.log("  Is Trial Active:", isTrialActive ? "Yes" : "No");
+        if (isTrialActive) {
+            console.log("  Start Time:", vm.toString(startTime));
+            console.log("  Usage Count:", vm.toString(usageCount));
+            console.log("  Remaining Uses:", vm.toString(MAX_USAGE - usageCount));
         }
 
-        try trialPeriodEnforcer.isPaidSubscriptionActive(delegationHash) returns (bool isActive, uint256 paymentAmount) {
-            console.log("  Paid subscription active:", isActive ? "Yes" : "No");
-            console.log("  Required payment amount:", vm.toString(paymentAmount));
-        } catch Error(string memory reason) {
-            console.log("Failed to get subscription state:", reason);
-        } catch {
-            console.log("Failed to get subscription state");
+        console.log("Paid Subscription State:");
+        console.log("  Is Paid Subscription Active:", isPaidActive ? "Yes" : "No");
+        if (isPaidActive) {
+            console.log("  Payment Amount:", vm.toString(paymentAmount));
         }
     }
 
     /**
-     * @notice Helper function to advance time
-     * @param duration The amount of time to advance
+     * @notice Execute a simple action using the delegation
+     * @param delegation The delegation to use
+     * @param actionTarget The target address for the action
+     * @param actionCallData The calldata for the action
+     * @return success Whether the action was executed successfully
      */
-    function advanceTime(uint256 duration) internal {
-        vm.warp(block.timestamp + duration);
-        console.log("\n=== Time Advanced ===");
-        console.log("Advanced by", vm.toString(duration), "seconds");
-        console.log("New timestamp:", vm.toString(block.timestamp));
-    }
+    function executeAction(
+        Delegation memory delegation,
+        address actionTarget,
+        bytes memory actionCallData
+    )
+        internal
+        returns (bool)
+    {
+        console.log("\n=== Executing Action ===");
+        console.log("Current nonce:", vm.toString(currentNonce));
 
-    // Helper functions will be implemented incrementally
+        // Create a UserOperation
+        PackedUserOperation memory userOp = createUserOp(delegation, actionTarget, actionCallData);
+
+        // Sign the UserOperation
+        console.log("Signing UserOperation...");
+        userOp = signUserOp(userOp);
+
+        // Execute the UserOperation
+        console.log("Executing UserOperation...");
+        vm.startBroadcast();
+
+        PackedUserOperation[] memory userOps = new PackedUserOperation[](1);
+        userOps[0] = userOp;
+
+        bool success = false;
+        try entryPoint.handleOps(userOps, payable(delegate)) {
+            console.log("UserOperation executed successfully");
+            success = true;
+            // Increment the nonce for the next operation
+            currentNonce++;
+        } catch Error(string memory reason) {
+            console.log("UserOperation execution failed:", reason);
+            // If the error is about an invalid nonce, increment it for the next try
+            if (bytes(reason).length > 0 && keccak256(bytes(reason)) == keccak256(bytes("AA25 invalid account nonce")))
+            {
+                console.log("Incrementing nonce due to invalid nonce error");
+                currentNonce++;
+            }
+        } catch (bytes memory lowLevelData) {
+            console.log("UserOperation execution failed with low level error");
+            console.logBytes(lowLevelData);
+
+            // Try to extract error message from low level data
+            // This is a common format for AA errors: bytes4(0x220266b6) + offset(32) + length(32) + string data
+            if (lowLevelData.length >= 68) {
+                bytes4 errorSelector;
+                assembly {
+                    errorSelector := mload(add(lowLevelData, 0x20))
+                }
+
+                // Check if it's the FailedOp error selector
+                if (errorSelector == bytes4(0x220266b6)) {
+                    // Extract the error message if possible
+                    uint256 dataOffset;
+                    assembly {
+                        dataOffset := mload(add(lowLevelData, 0x24))
+                    }
+
+                    if (dataOffset == 0x40) {
+                        // Standard offset for string in FailedOp
+                        uint256 errorLength;
+                        assembly {
+                            errorLength := mload(add(lowLevelData, 0x44))
+                        }
+
+                        if (errorLength > 0 && errorLength <= 100) {
+                            // Reasonable length for error message
+                            bytes memory errorMsg = new bytes(errorLength);
+                            for (uint256 i = 0; i < errorLength; i++) {
+                                if (0x64 + i < lowLevelData.length) {
+                                    errorMsg[i] = lowLevelData[0x64 + i];
+                                }
+                            }
+                            string memory errorString = string(errorMsg);
+                            console.log("Extracted error:", errorString);
+
+                            // If it's an invalid nonce error, increment the nonce
+                            if (keccak256(bytes(errorString)) == keccak256(bytes("AA25 invalid account nonce"))) {
+                                console.log("Incrementing nonce due to invalid nonce error");
+                                currentNonce++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        vm.stopBroadcast();
+        return success;
+    }
 }
