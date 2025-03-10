@@ -10,7 +10,22 @@ test = "test"
 solc = "0.8.23"
 fs_permissions = [{ access = "read", path = "./out"},{ access = "read", path = "./broadcast"}, { access = "read-write", path = "./deployments"}]
 sparse_mode = true
-evm_version = "london"
+evm_version = "prague"
+
+[profile.via_ir]
+auto_detect_solc = false
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+solc = "0.8.23"
+fs_permissions = [{ access = "read", path = "./out"},{ access = "read", path = "./broadcast"}, { access = "read-write", path = "./deployments"}]
+sparse_mode = true
+evm_version = "prague"
+via_ir = true
+optimizer = true
+optimizer_runs = 1000
+optimizer_details = { constantOptimizer = true, yul = true, deduplicate = true, cse = true, orderLiterals = true }
 
 [fmt]
   bracket_spacing = true

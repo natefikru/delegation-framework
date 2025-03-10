@@ -8,6 +8,10 @@ contract Counter is Ownable {
 
     uint256 public count = 0;
 
+    ////////////////////////////// Events //////////////////////////////
+
+    event CounterIncremented(address indexed caller, uint256 newCount);
+
     ////////////////////////////// Constructor //////////////////////////////
 
     constructor(address _initialOwner) Ownable(_initialOwner) { }
@@ -20,9 +24,14 @@ contract Counter is Ownable {
 
     function increment() public onlyOwner {
         count++;
+        emit CounterIncremented(msg.sender, count);
     }
 
     function unsafeIncrement() public {
         count++;
+    }
+
+    function willRevert() public pure {
+        revert("This function always reverts");
     }
 }

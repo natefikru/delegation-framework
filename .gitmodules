@@ -22,3 +22,9 @@
 [submodule "lib/FCL"]
 	path = lib/FCL
 	url = https://github.com/rdubois-crypto/FreshCryptoLib
+[submodule "sepolia-7702-test/contracts/lib/forge-std"]
+	path = sepolia-7702-test/contracts/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "sepolia-7702-test/contracts/lib/openzeppelin-contracts"]
+	path = sepolia-7702-test/contracts/lib/openzeppelin-contracts
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts
